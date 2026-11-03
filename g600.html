@@ -195,6 +195,14 @@ mark{background:var(--mark-bg);color:var(--amber-glow);border-radius:2px}
 .sheetbd{flex:1 1 auto;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:16px;overflow-y:auto;padding-bottom:calc(16px + var(--safe-b))}
 .pagetext{font-family:var(--mono);font-size:12.5px;line-height:1.5;white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-wrap:anywhere;color:var(--pagetext)}
 .kv{font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:10px;word-break:break-word}
+.ddsol{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:8px 0;background:var(--surface)}
+.ddsh{font-size:14px;color:var(--strong);line-height:1.45}
+.ddf{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;background:var(--tonal);color:var(--on-tonal);margin-left:4px;white-space:nowrap}
+.ddlbl{font-size:12px;font-weight:600;color:var(--text-dim);margin:12px 0 4px;letter-spacing:.02em}
+.ddtx{font-size:13px;color:var(--text);line-height:1.55;white-space:pre-line;word-break:break-word}
+.ddul{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)}
+.ddul li{margin:3px 0;word-break:break-word}
+#modalBody .m{font-size:12px;color:var(--text-dim);margin:2px 0 4px}
 .kv b{color:var(--text)}
 .caselist .ci{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
 .caselist .ci .t{flex:1;cursor:pointer} .caselist .ci .t div:first-child{font-weight:700;font-size:14px} .caselist .ci .t div:last-child{font-size:12px;color:var(--text-dim)}
@@ -787,6 +795,7 @@ async function loadCore(){
   DATA.ready=false;
   try{
     DATA.manifest=await fetchData('manifest.json',{cache:false});
+    try{DD.idx=null;DD.ch.clear();DD.sol.clear()}catch(e){}
     [DATA.catalog,DATA.faults,DATA.cmc]=await Promise.all([fetchData('catalog.json'),fetchData('faults.json'),fetchData('cmc.json').catch(()=>({messages:[],codes:[]}))]);
     DATA.byCite=new Map(DATA.catalog.map(d=>[normCite(d.c),d]));
     DATA.wsys=new Map(DATA.catalog.filter(d=>d.m==='iWDM').map(d=>[d.c.slice(5),d]));
@@ -1069,6 +1078,8 @@ const TOOLS=[
   input_schema:{type:'object',properties:{query:{type:'string',description:'e.g. "006A5", "CPCU", "MS3456", "TEMPERATURE SENSOR"'},ata_prefix:{type:'string',description:'Optional ATA filter, e.g. "21-20"'}},required:['query']}},
  {name:'get_connector_pins',description:'Get the iWDM pin-out of a connector or inline: for each cavity the signal, wire number (gauge is in the wire number, e.g. 1H321A20 = 20 AWG), wire P/N, color, and the mating far-end connector and pin. Use to say exactly which pins/wires to meter and where the other end goes.',
   input_schema:{type:'object',properties:{connector:{type:'string',description:'Exact designator, e.g. "006A5P1"'},filter:{type:'string',description:'Optional text filter on rows (pin, wire, signal, far-end)'}},required:['connector']}},
+ {name:'lookup_diagnostics',description:'Look up Gulfstream Diagnostics Direct, the G600 fault isolation portal (loaded here as an export; Gulfstream publishes no G600 FIM), for a CAS message, CMC maintenance message / fault code or observed fault. Returns the fault description, the correlated CMC messages, and the known solutions ranked by how often each one fixed this symptom in the fleet (fleet_frequency), each with its repair action and the key observations / test results that point to it, plus the guided troubleshooting steps and AMM references. Pass solution_id (e.g. "1-19821") to get one solution in full: complete repair text, every key observation and the symptoms it fixes. Field-experience data: confirm the procedure in the AMM.',
+  input_schema:{type:'object',properties:{query:{type:'string',description:'CAS message, CMC message name or fault code, or observed-fault words, e.g. "CABIN PRESSURE LOW", "2230035ATA1", "AT1A-RADALT UNAVAILABLE"'},ata_chapter:{type:'string',description:'Optional two-digit ATA chapter to narrow the search, e.g. "21"'},solution_id:{type:'string',description:'Get one solution in full, e.g. "1-19821" (from known_solutions)'}}}},
  {name:'lookup_mel',description:'Look up MEL dispatch relief for an inoperative item or a CAS message in the Gulfstream GVII-G500/G600 MMEL (Rev 4) with the Gulfstream MOPP. Returns for each relief option: repair category, number installed / required for dispatch, the MMEL remarks or exceptions (conditions), the (M) maintenance procedure, (O) operational procedure and placard, the repair interval and the dispatch authority under the operating rule set in the app, with MMEL / MOPP citations. Use it when the technician asks whether the aircraft can be dispatched, or when your conclusion leaves an item inoperative. Search with the system / item words as the MMEL names them (e.g. "water line heater", not a part number or reference designator). If the failed part is not named in the results, also search the two-digit ATA chapter alone (e.g. "38") to list every item in that chapter, and choose the most specific item that covers the failed part (a heater item over the whole water system).',
   input_schema:{type:'object',properties:{query:{type:'string',description:'Item or CAS message words, or MMEL item number, e.g. "ECS pack", "TSC", "ADS 1-2-3-4 Dgrd", "21-4"'}},required:['query']}},
  {name:'record_mel_deferral',description:'Record that an MEL deferral is verified as necessary for this case, so the app fills the MEL deferral section of the operator paperwork (the Solairus AMDL when that operating rule is set) and offers it to the technician. Call it only when (1) the fault will not be corrected before the next flight (the technician said so, or asked to defer), (2) lookup_mel found relief for the actual failed item under the operating rule, and (3) you have picked the relief option whose conditions match this aircraft. Never call it as a suggestion or for an item without relief.',
@@ -1168,6 +1179,9 @@ Known gaps:`);
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>wn(t.dataset.tab)));
   {const g=$('#moGo');if(g)g.addEventListener('click',()=>{const m=document.querySelector('.tab[data-tab=mel]');if(m)m.click()})}
 }
+/* Diagnostics Direct export: G600 (GVII-G500 / G600) only */
+const DD_TYPE=!(FC&&(FC.melOnly||FC.type==='gviii'||FC.type==='gvi'));
+if(!DD_TYPE){const i=TOOLS.findIndex(t=>t.name==='lookup_diagnostics');if(i>=0)TOOLS.splice(i,1)}
 async function runTool(name,input){
   try{
     if(WSET_P)await WSET_P;
@@ -1179,6 +1193,22 @@ async function runTool(name,input){
     if(name==='lookup_cmc'){
       const r=searchCmc(input.query||'',12);r.forEach(x=>(x.refs||[]).forEach(f=>registerSource({cite:f[2],doc_id:f[0],pdf_page:f[1]})));
       return {summary:`${r.length} match${r.length===1?'':'es'}`,data:{matches:r.map(x=>x.kind==='code'?{fault_code:x.code,ata:x.ata,fault_number:x.num,reporting_unit:x.lru,named_in:(x.refs||[]).map(f=>({cite:f[2],doc_id:f[0],pdf_page:f[1]})),other_messages_from_same_unit:x.sameLru}:{maintenance_message:x.msg,reporting_unit:x.lru,ata:x.ata||undefined,named_in:x.refs.map(f=>({cite:f[2],doc_id:f[0],pdf_page:f[1]}))}),note:r.length?undefined:'Not in the index. Decode by structure (CCSSNNN + reporting unit) or search the manuals for the message words.'}};
+    }
+    if(name==='lookup_diagnostics'){
+      if(!ddOn())return {summary:'not loaded',error:true,data:{error:'Diagnostics Direct data is not in this data repo yet.'}};
+      const dm=DATA.manifest.diagnostics,src=`Gulfstream Diagnostics Direct export ${fmtDay(dm.exported)}`;
+      if(input.solution_id){
+        const id=String(input.solution_id).replace(/^DD\s*/i,'').trim();const f=await ddFindSolution(id,input.ata_chapter);
+        if(!f)return {summary:'not found',data:{error:`Solution ${id} is not in the Diagnostics Direct export.`}};
+        const [x,k,c]=f;
+        return {summary:`solution ${id}`,data:{source:src,solution_id:id,cite:`DD ${id}`,title:x.t,type:x.y||undefined,last_modified:fmtDay(x.m)||undefined,ata_chapter:k,repair:x.r,
+          key_observations:(x.k||[]).map(([q,v,d])=>({check:q,result:(v||[]).join('; '),details:d||undefined})),
+          symptoms_it_fixes:c.symptoms.filter(s=>s.s.some(z=>z[0]===id)).map(s=>s.n).slice(0,20)}};
+      }
+      const r=await ddSearch(input.query||'',input.ata_chapter,10);
+      const full=[];for(let i=0;i<Math.min(3,r.length);i++){const c=await ddChapter(r[i][1]);full.push(ddSym(c,r[i][3],r[i][1],i===0))}
+      return {summary:`${r.length} match${r.length===1?'':'es'}`,data:{source:src,matches:full,other_matches:r.length>3?r.slice(3).map(x=>x[0]):undefined,
+        note:r.length?'known_solutions are ranked by fleet_frequency (how often each fixed this symptom). Use the key observations to test which one fits this aircraft, and confirm the procedure in the AMM. Cite as [DD <solution_id>] or [DD <symptom>].':'No Diagnostics Direct symptom matches. Try the exact CAS wording, the CMC fault code, or fewer words.'}};
     }
     if(name==='lookup_mel'){
       await loadMel();const ops=melOps();const disc=new Date();
@@ -1253,6 +1283,83 @@ const SOURCES=new Map();
 function normCite(c){return String(c).toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim()}
 function registerSource(x){if(x&&x.cite&&x.doc_id!=null){SOURCES.set(normCite(x.cite),{doc_id:x.doc_id,pdf_page:x.pdf_page,hl:x.hl});}}
 
+/* ═════════════════ DIAGNOSTICS DIRECT (Gulfstream's G600 fault isolation portal, exported) ═════════════════ */
+const DD={idx:null,ch:new Map(),sol:new Map()};
+function ddOn(){return DD_TYPE&&!!(DATA.manifest&&DATA.manifest.diagnostics)}
+function fmtDay(d){const m=String(d||'').match(/^(\d{4})-(\d\d)-(\d\d)/);return m?`${+m[3]} ${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][+m[2]-1]} ${m[1]}`:String(d||'')}
+function ddIndex(){if(!DD.idx)DD.idx=fetchData('dd/index.json.gz').catch(e=>{DD.idx=null;throw e});return DD.idx}
+function ddChapter(k){
+  if(!DD.ch.has(k))DD.ch.set(k,fetchData(`dd/${k}.json.gz`).then(c=>{for(const id in c.solutions)DD.sol.set(id,k);return c}).catch(e=>{DD.ch.delete(k);throw e}));
+  return DD.ch.get(k);
+}
+const ddNorm=s=>normMsg(String(s||'').replace(/\((?:Red|Amber|Cyan|White|Blue|Magenta|Green)\)\s*$/i,''));
+async function ddSearch(q,ata,max=10){
+  const idx=await ddIndex();const Q=ddNorm(q),terms=Q.split(' ').filter(Boolean);if(!terms.length)return [];
+  const code=String(q||'').toUpperCase().replace(/\s+/g,'').match(/^\d{7}[A-Z][A-Z0-9]{1,5}/);
+  const a=ata?String(ata).replace(/\D/g,'').padStart(2,'0').slice(0,2):'';const out=[];
+  for(const r of idx){
+    if(a&&r[1]!==a)continue;
+    const N=ddNorm(r[0]),base=N.replace(/^\d{7}[A-Z0-9]+ /,'');let s=0;
+    if(code&&N.replace(/ /g,'').startsWith(code[0]))s+=200;
+    else if(!terms.every(t=>N.includes(t)))continue;
+    if(N===Q||base===Q)s+=100;else if(base.startsWith(Q)||N.startsWith(Q))s+=30;
+    if(terms.every(t=>(' '+N+' ').includes(' '+t+' ')))s+=10;
+    s-=N.length/50;out.push([s,r]);
+  }
+  return out.sort((x,y)=>y[0]-x[0]).slice(0,max).map(x=>x[1]);
+}
+async function ddFindSolution(id,ata){
+  if(DD.sol.has(id)){const k=DD.sol.get(id);const c=await ddChapter(k);return [c.solutions[id],k,c]}
+  const ks=Object.keys(DATA.manifest.diagnostics.chapters||{});const a=ata?String(ata).replace(/\D/g,'').padStart(2,'0').slice(0,2):'';
+  for(const k of (a&&ks.includes(a)?[a,...ks.filter(x=>x!==a)]:ks)){const c=await ddChapter(k);if(c.solutions[id])return [c.solutions[id],k,c]}
+  return null;
+}
+const ddCut=(s,n)=>{s=String(s||'');return s.length>n?s.slice(0,n).replace(/\s+\S*$/,'')+' …':s};
+const DD_CAT={CAS:'CAS message',CMC:'CMC message',OBS:'Observed fault'};
+function ddSym(c,row,k,detail){
+  const s=c.symptoms[row],corr=[],steps=[];
+  for(const qid of s.q){const st=c.steps[qid];if(!st)continue;
+    if(st.t==='Correlation'){for(const [n,d] of (st.i||[]))if(!/^None\b/i.test(n))corr.push({message:n,description:ddCut(d,detail?400:160)||undefined})}
+    else steps.push({step:st.q,answers:st.a&&st.a.length?st.a.join(' / '):undefined,procedure:detail&&st.d?ddCut(st.d,500):undefined,answer_list:st.n?`${st.n} messages`:undefined});
+  }
+  const nc=detail?20:8,ns=detail?10:5,nst=detail?15:6;
+  const sols=s.s.slice(0,ns).map(([id,f])=>{const x=c.solutions[id]||{};return {solution_id:id,cite:`DD ${id}`,title:x.t,fleet_frequency:f,type:x.y||undefined,last_modified:fmtDay(x.m)||undefined,repair:ddCut(x.r,detail?700:240),
+    key_observations:detail?(x.k||[]).slice(0,6).map(([q,v])=>({check:q,result:ddCut((v||[]).join('; '),300)})):undefined}});
+  return {symptom:s.n,cite:`DD ${s.n}`,category:DD_CAT[s.f]||s.f,ata_chapter:k,description:s.d||undefined,
+    correlated_cmc_messages:corr.length?corr.slice(0,nc):undefined,more_correlated:corr.length>nc?corr.length-nc:undefined,
+    known_solutions:sols.length?sols:undefined,known_solutions_total:s.s.length,
+    no_known_solution:s.s.length?undefined:'Diagnostics Direct has no solution for this symptom yet (it would report it as a new problem): isolate from the SDM / AMM logic and the wiring.',
+    troubleshooting_steps:steps.length?steps.slice(0,nst):undefined,more_steps:steps.length>nst?steps.length-nst:undefined,references:s.r.length?s.r:undefined};
+}
+/* DD citations open a sheet: [DD 1-19821] = a solution, [DD <symptom>] = the symptom with its solutions */
+async function showDD(cite){
+  const ref=cite.replace(/^DD\s+/i,'').trim();
+  if(!ddOn()){showModal(cite,'<div class="kv">Diagnostics Direct data is not loaded.</div>');return}
+  showModal('Diagnostics Direct','<div class="kv">Loading…</div>');
+  try{
+    const dm=DATA.manifest.diagnostics,foot=`<div class="hint">Gulfstream Diagnostics Direct export ${esc(fmtDay(dm.exported))}. Field-experience data: confirm the procedure in the current AMM.</div>`;
+    const solHtml=(id,x,f)=>`<div class="ddsol"><div class="ddsh"><b>${esc(id)}</b> ${esc(x.t||'')}${f?` <span class="ddf">fixed it ${f}×</span>`:''}</div>
+      <div class="m">${esc([x.y,x.m?'Last Modified '+fmtDay(x.m):''].filter(Boolean).join(' · '))}</div>
+      ${x.r?`<div class="ddlbl">Repair</div><div class="ddtx">${esc(x.r)}</div>`:''}
+      ${(x.k||[]).length?`<div class="ddlbl">Key Observations</div><ul class="ddul">${x.k.map(([q,v,d])=>`<li><b>${esc(q)}</b>${v&&v.length?' — '+esc(v.join('; ')):''}${d?`<div class="ddtx">${esc(d)}</div>`:''}</li>`).join('')}</ul>`:''}</div>`;
+    if(/^\d+-\d+$/.test(ref)){
+      const f=await ddFindSolution(ref);if(!f){$('#modalBody').innerHTML='<div class="errbox">Solution not found in the export.</div>';return}
+      $('#modalTitle').textContent=`Diagnostics Direct · ${ref}`;
+      const used=f[2].symptoms.filter(s=>s.s.some(z=>z[0]===ref));
+      $('#modalBody').innerHTML=solHtml(ref,f[0])+(used.length?`<div class="ddlbl">Fixes These Symptoms</div><ul class="ddul">${used.slice(0,30).map(s=>`<li><span class="cite" data-cite="DD ${esc(s.n)}">${esc(s.n)}</span></li>`).join('')}</ul>`:'')+foot;
+      return;
+    }
+    const r=await ddSearch(ref,'',1);if(!r.length){$('#modalBody').innerHTML='<div class="errbox">Symptom not found in the export.</div>';return}
+    const c=await ddChapter(r[0][1]),s=c.symptoms[r[0][3]];
+    $('#modalTitle').textContent=`Diagnostics Direct · ATA ${r[0][1]}`;
+    const corr=[];for(const q of s.q){const st=c.steps[q];if(st&&st.t==='Correlation')for(const [n,d] of (st.i||[]))if(!/^None\b/i.test(n))corr.push([n,d])}
+    $('#modalBody').innerHTML=`<div class="ddsh"><b>${esc(s.n)}</b></div><div class="m">${esc(DD_CAT[s.f]||s.f)} · ATA ${esc(r[0][1])}</div>${s.d?`<div class="ddtx">${esc(s.d)}</div>`:''}
+      ${corr.length?`<div class="ddlbl">Correlated CMC Messages</div><ul class="ddul">${corr.map(([n,d])=>`<li><b>${esc(n)}</b>${d?' — '+esc(ddCut(d,220)):''}</li>`).join('')}</ul>`:''}
+      <div class="ddlbl">Known Possible Solutions — ${s.s.length}</div>${s.s.length?s.s.map(([id,f])=>solHtml(id,c.solutions[id]||{},f)).join(''):'<div class="kv">None listed yet (new problem).</div>'}
+      ${s.r.length?`<div class="ddlbl">References</div><ul class="ddul">${s.r.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}`+foot;
+  }catch(e){$('#modalBody').innerHTML=`<div class="errbox">${esc(e.message)}</div>`}
+}
+
 /* ═════════════════ SYSTEM PROMPT ═════════════════ */
 function systemPrompt(){
   const m=DATA.manifest||{};const rev=m.revisions||{};
@@ -1265,12 +1372,13 @@ Aircraft: ${m.aircraft||'Gulfstream G600'}. The G600 shares the GVII platform wi
 - iWDM (${rev.iWDM||''}): interactive wiring data. Wiring systems with diagram sheets (cite "iWDM <system> sh <sheet>"), every device/connector/splice/ground with P/N and harness, and full connector pin-outs (cavity → signal → wire → far-end pin/connector).
 - IPC (${rev.IPC||''}): part numbers and effectivity. SWPM (${rev.SWPM||''}): standard wiring practices (repair, crimp, splice, shield, bonding).
 - FSI ${rev.FSI||''}: training manual by chapter, including CAS tables with trigger logic. Training only; AMM/SDM govern.
-- ERC: engine/APU ground run checklist.
+- ERC: engine/APU ground run checklist.${ddOn()?`
+- Diagnostics Direct (Gulfstream's G600 fault isolation portal, export dated ${fmtDay(m.diagnostics.exported)}): ${m.diagnostics.symptoms} symptoms (CAS messages, CMC messages, observed faults) with correlated CMC messages, ${m.diagnostics.solutions} known solutions ranked by fleet frequency (repair action, key observations, AMM references) and the guided troubleshooting steps. Use lookup_diagnostics; cite "DD <solution id>" or "DD <symptom>". Field-experience data: the AMM governs the procedure.`:''}
 - MMEL (${rev.MMEL||''}) and Gulfstream MOPP (${rev.MOPP||''}): dispatch relief with inoperative items (Section 1 items, Section 2 CAS messages), repair categories, and the (M) maintenance, (O) operational and placarding procedures. Use lookup_mel. The operator's own approved MEL governs.
 Known gaps: ${(m.gaps||[]).join(' | ')}
 
 # How to work
-1. For every CAS message given, call lookup_cas to get its color and trigger logic. For every CMC maintenance message or fault code given, call lookup_cmc: a fault code is CCSSNNN + reporting unit (2480023SPL1 = ATA 24-80, fault 023, from SPL1), and a message name starts with the reporting unit (FCC1-IRU 1 NO DATA = FCC 1 reports no data from IRU 1); read the AMM / FSI pages that name it. Gulfstream publishes no FIM for this aircraft: its fault isolation lives in Gulfstream's online troubleshooting portal, which is not in this library (tell the technician to confirm there). Build fault isolation from the system logic (SDM + FSI), the monitoring source (which RDC/DCN node, controller, MAU or sensor sets the message), and the iWDM wiring.
+1. For every CAS message given, call lookup_cas to get its color and trigger logic. For every CMC maintenance message or fault code given, call lookup_cmc: a fault code is CCSSNNN + reporting unit (2480023SPL1 = ATA 24-80, fault 023, from SPL1), and a message name starts with the reporting unit (FCC1-IRU 1 NO DATA = FCC 1 reports no data from IRU 1); read the AMM / FSI pages that name it. ${ddOn()?`Gulfstream publishes no FIM for this aircraft; its fault isolation portal, Diagnostics Direct, is loaded here as an export dated ${fmtDay(m.diagnostics.exported)}. For every CAS / CMC message given (and for an observed fault), also call lookup_diagnostics. Its known solutions are field-proven fixes ranked by fleet_frequency (how often each one fixed that symptom): weigh them heavily in the differential (highest frequency first, unless this aircraft's evidence argues against it), use their key observations and the troubleshooting steps as discriminating checks, and call lookup_diagnostics with solution_id for the full repair text before recommending one. If it lists no solution, say so (Diagnostics Direct online may have newer data). Also build`:`Gulfstream publishes no FIM for this aircraft: its fault isolation lives in Gulfstream's online troubleshooting portal, which is not in this library (tell the technician to confirm there). Build`} fault isolation from the system logic (SDM + FSI), the monitoring source (which RDC/DCN node, controller, MAU or sensor sets the message), and the iWDM wiring.
 2. Understand the system before judging: read the SDM chapter (and FSI chapter) for how the message is generated: sensors, thresholds, controllers, time delays, inhibits, BIT, data paths (DCN/RDCs, ARINC 429, MAU/IOGM). Search for the exact CAS wording and the logic.
 3. Use the reported conditions as evidence. Phase of flight, altitude, temperatures, pressures, ΔP, side, intermittency, recent maintenance and what has already been checked must actively raise or lower each hypothesis. Example: a fault only at high altitude/cold soak points toward pressure- or temperature-sensitive components and connectors, not a hard LRU failure; a fault that follows a swap points toward what moved.
 4. Build a differential: list candidate causes (sensor, wiring/connector, data source such as an RDC, controller/LRU, power: SSPC/CB, mechanical) and for each say what evidence supports or contradicts it. Rank them.
@@ -1283,7 +1391,7 @@ Do not stop at one search: search, read the relevant pages, cross-check between 
 # Rules
 - The technician can attach photos (CAS / CMC screens, the failed part, connectors, wiring, leaks, placards). Look at each photo carefully: say what you see that matters, read any visible text (CAS or CMC messages, part numbers, connector or wire labels, placards) and use it as evidence. If a photo is unclear or does not show what you need, say exactly what photo to take.
 - Write every date as day, three-letter month in capitals, four-digit year: 21 OCT 2026 (also in logbook / corrective-action wording).
-- Cite every manual-derived fact inline using the citation strings returned by tools, in square brackets, e.g. [AMM 21-61-03-280B p2], [SDM 21-00-00 p3], [FSI 21 p129], [iWDM 73P2120006J_TP sh 3.000], [iWDM 006A5P1 pin-out]. Never invent citations.
+- Cite every manual-derived fact inline using the citation strings returned by tools, in square brackets, e.g. [AMM 21-61-03-280B p2], [SDM 21-00-00 p3], [FSI 21 p129], [iWDM 73P2120006J_TP sh 3.000], [iWDM 006A5P1 pin-out]${ddOn()?', [DD 1-19821]':''}. Never invent citations.
 - Never invent part numbers, limits, tolerances, torque values, pin numbers, wire numbers or task numbers. If you cannot find it, say so and point to where it should be.
 - Clearly label anything from general experience rather than these manuals as "General knowledge (not from the manuals)".
 - FSI is training material (chapter revisions 0.1–0.9): confirm FSI logic against the SDM/AMM when it matters, and flag differences. ${wsetPromptLine()}
@@ -1387,7 +1495,7 @@ function fixDanglingToolUse(){
 }
 
 /* ═════════════════ RENDERING ═════════════════ */
-const CITE_RX=/\[((?:AMM|SDM|FSI|iWDM|IPC|SWPM|ERC|EWIS)\b[^\]\n]{1,80})\]/g;
+const CITE_RX=/\[((?:AMM|SDM|FSI|iWDM|IPC|SWPM|ERC|EWIS|DD)\b[^\]\n]{1,80})\]/g;
 function inlineMd(s){
   s=esc(s);
   s=s.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g,'$1<em>$2</em>');
@@ -1425,7 +1533,7 @@ function md(src){
   }
   closeLists();return html;
 }
-const TOOL_LABEL={record_corrective_action:i=>'Corrective action recorded',record_mel_deferral:i=>'MEL deferral recorded',lookup_mel:i=>`MEL: “${i.query||''}”`,lookup_cas:i=>`CAS: “${i.query||''}”`,lookup_cmc:i=>`CMC: “${i.query||''}”`,lookup_fault:i=>`CAS: “${i.query||''}”`,search_manuals:i=>`Search ${(i.manuals||[]).join('/')||'all'}${i.ata_chapters?' ch '+i.ata_chapters.join(','):''}: “${i.query||''}”`,read_pages:i=>`Read doc ${i.doc_id} p${i.pdf_page}${i.count>1?'+'+(i.count-1):''}`,list_documents:i=>`List docs ${[i.manual,i.ata_prefix,i.title_contains].filter(Boolean).join(' · ')}`,find_component:i=>`Component: ${i.query||''}${i.ata_prefix?' ('+i.ata_prefix+')':''}`,get_connector_pins:i=>`Pin-out ${i.connector||''}${i.filter?' · '+i.filter:''}`,trace_wire:i=>`Trace wire ${i.wire||''}`};
+const TOOL_LABEL={record_corrective_action:i=>'Corrective action recorded',record_mel_deferral:i=>'MEL deferral recorded',lookup_mel:i=>`MEL: “${i.query||''}”`,lookup_cas:i=>`CAS: “${i.query||''}”`,lookup_cmc:i=>`CMC: “${i.query||''}”`,lookup_diagnostics:i=>`Diagnostics Direct: “${i.solution_id||i.query||''}”`,lookup_fault:i=>`CAS: “${i.query||''}”`,search_manuals:i=>`Search ${(i.manuals||[]).join('/')||'all'}${i.ata_chapters?' ch '+i.ata_chapters.join(','):''}: “${i.query||''}”`,read_pages:i=>`Read doc ${i.doc_id} p${i.pdf_page}${i.count>1?'+'+(i.count-1):''}`,list_documents:i=>`List docs ${[i.manual,i.ata_prefix,i.title_contains].filter(Boolean).join(' · ')}`,find_component:i=>`Component: ${i.query||''}${i.ata_prefix?' ('+i.ata_prefix+')':''}`,get_connector_pins:i=>`Pin-out ${i.connector||''}${i.filter?' · '+i.filter:''}`,trace_wire:i=>`Trace wire ${i.wire||''}`};
 function toolLabel(b){const f=TOOL_LABEL[b.name];return f?f(b.input||{}):b.name}
 function toolEl(b,result){
   const el=document.createElement('div');el.className='tool'+(result?(result.error?' err':''):' run');el.dataset.id=b.id;
@@ -1797,6 +1905,7 @@ async function openPage(docId,page,opt={}){
 }
 document.addEventListener('click',async e=>{
   const c=e.target.closest('.cite');if(!c)return;
+  if(/^DD\s/i.test(c.dataset.cite||'')){showDD(c.dataset.cite);return}
   if(!DATA.ready){showModal('Reference','<div class="errbox">Manual data not loaded.</div>');return}
   c.style.opacity=.5;const r=await resolveCite(c.dataset.cite);c.style.opacity='';
   if(r&&r.pins)showPins(r.pins);else if(r&&r.wire)showWire(r.wire);else if(r)openPage(r.doc_id,r.pdf_page,{hl:r.hl||[]});else showModal(c.dataset.cite,'<div class="kv">This reference could not be matched to an indexed page. Try the Search Manuals tab.</div>');
@@ -1852,6 +1961,7 @@ function openSettings(note){
   $('#stOffline').onclick=async()=>{
     if(!DATA.ready){$('#stStatus').textContent='Connect the data source first.';return}
     const files=[...Object.keys(DATA.manifest.shards).filter(k=>k!=='wset').map(k=>`shards/${k}.json.gz`),'wiring/components.json.gz',...(DATA.manifest.wiring?.pinChapters||[]).map(c=>`wiring/pins/${c}.json.gz`),
+      ...(ddOn()?['dd/index.json.gz',...Object.keys(DATA.manifest.diagnostics.chapters||{}).map(k=>`dd/${k}.json.gz`)]:[]),
       ...(WSET?[WSET.path+'set.json',WSET.path+'systems.json',WSET.path+'sheets.json.gz',WSET.path+'components.json.gz',...WSET.meta.pinChapters.map(c=>`${WSET.path}pins/${c}.json.gz`)]:[])];
     const bar=$('#stProg');bar.classList.remove('hidden');let n=0;$('#stOffline').disabled=true;
     for(const f of files){try{await fetchData(f)}catch(e){$('#stStatus').textContent='Failed: '+e.message;break}bar.firstChild.style.width=(++n/files.length*100)+'%'}
@@ -1865,7 +1975,7 @@ function renderBadges(err){renderAiBadge();
   const b=$('#badges');b.dataset.err=err||'';
   if(err){b.innerHTML=`<span class="badge" style="color:var(--red);border-color:var(--err-border)">DATA OFFLINE</span><span class="badge">${esc(err.slice(0,80))}</span>`;return}
   const amm=(DATA.manifest.revisions.AMM||'').match(/(\w+) \d+\/(\d\d)/);
-  b.innerHTML=`<span class="badge amber">${DATA.catalog.length.toLocaleString()} DOCS</span><span class="badge">AMM ${amm?esc(amm[1].slice(0,3).toUpperCase()+' '+amm[2]):''}</span><span class="badge">SDM R9</span><span class="badge">iWDM R4</span><span class="badge">${DATA.faults.length} CAS</span><span class="badge">IPC · SWPM · FSI</span>`;renderAiBadge();
+  b.innerHTML=`<span class="badge amber">${DATA.catalog.length.toLocaleString()} DOCS</span><span class="badge">AMM ${amm?esc(amm[1].slice(0,3).toUpperCase()+' '+amm[2]):''}</span><span class="badge">SDM R9</span><span class="badge">iWDM R4</span><span class="badge">${DATA.faults.length} CAS</span><span class="badge">IPC · SWPM · FSI</span>${ddOn()?`<span class="badge">DIAG DIRECT</span>`:''}`;renderAiBadge();
 }
 
 /* ═════════════════ INTAKE ═════════════════ */

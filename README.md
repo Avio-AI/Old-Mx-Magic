@@ -37,7 +37,7 @@ This repo holds only the apps (static `index.html` fleet shell + `g600.html`) an
 
 ## Notes
 
-- There is **no G600 Fault Isolation Manual** in this library. CAS trigger logic comes from FlightSafety training tables, and the AI builds fault isolation from SDM/FSI system logic and iWDM wiring. The AMM, SDM and current approved data govern.
+- Gulfstream publishes **no G600 Fault Isolation Manual**: its fault isolation lives in the Diagnostics Direct portal. An export of it (8,708 symptoms with known solutions ranked by fleet frequency, key observations and guided troubleshooting steps) is in the data repo under `dd/`; the AI looks it up with `lookup_diagnostics` and cites `[DD <solution id>]`, which opens the solution. CAS trigger logic comes from FlightSafety training tables, and the AI builds the rest of the isolation from SDM/FSI system logic and iWDM wiring. The AMM, SDM and current approved data govern.
 - iWDM data is the R4 package for s/n 73100–73114. Verify other serials against the current iWDM.
 - Keys are stored only in that browser's local storage (untick "Remember" on shared devices). Anyone with your Anthropic key can spend on your account: use a key with a spend limit.
 - Decision aid only. The current revision of the approved maintenance data governs all maintenance and return-to-service actions.
